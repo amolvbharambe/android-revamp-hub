@@ -1,0 +1,5 @@
+# Category C: Preloaded Meta / Facebook System Services
+com.facebook.appmanager
+com.facebook.services
+com.facebook.system
+com.facebook.stella

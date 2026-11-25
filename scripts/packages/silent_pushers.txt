@@ -1,0 +1,5 @@
+# Category E: OxygenOS Silent Push & System App Updaters
+com.oplus.romupdate
+com.oplus.sau
+com.oplus.sauhelper
+com.oplus.cota

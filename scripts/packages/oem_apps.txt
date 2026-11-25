@@ -1,0 +1,5 @@
+# Category D: Optional OEM Store & Community Apps
+com.oneplus.mall
+com.oneplus.membership
+net.oneplus.forums
+com.oplus.tips

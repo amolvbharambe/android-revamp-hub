@@ -1,0 +1,8 @@
+# Category A: Adware, Lockscreen Recommendations & Instant Apps
+com.heytap.pictorial
+com.heytap.market
+com.heytap.market.overlay
+com.heytap.browser
+com.oplus.themestore
+com.nearme.instant.platform
+com.nearme.instant.card

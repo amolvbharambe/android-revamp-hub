@@ -1,0 +1,5 @@
+# Category B: Analytics, Telemetry & Diagnostics Loggers
+com.oplus.statistics.rom
+com.oplus.onetrace
+com.oplus.logkit
+com.google.android.feedback

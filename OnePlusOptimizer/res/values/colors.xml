@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#000000</color>
+    <color name="card_bg">#131317</color>
+    <color name="card_border">#23232C</color>
+    <color name="divider_color">#1F1F27</color>
+    <color name="chip_bg">#1A1A22</color>
+    <color name="chip_border">#2A2A38</color>
+    <color name="terminal_bg">#09090C</color>
+    <color name="terminal_border">#1C1C24</color>
+    <color name="op_red">#EB0029</color>
+    <color name="op_red_dark">#B3001F</color>
+    <color name="accent_green">#00E676</color>
+    <color name="accent_orange">#FF9100</color>
+    <color name="text_primary">#F8F8FA</color>
+    <color name="text_secondary">#95959E</color>
+    <color name="text_tertiary">#6E6E78</color>
+    <color name="terminal_text">#00FF66</color>
+</resources>

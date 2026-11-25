@@ -1,0 +1,12 @@
+.DS_Store
+*.apk
+*.apkm
+*.xapk
+*.idsig
+*.keystore
+*.jks
+OnePlusOptimizer/build/
+OnePlusOptimizer/obj/
+OnePlusOptimizer/gen/
+OnePlusOptimizer/bin/
+OnePlusOptimizer/src/com/oneplus/optimizer/IUserService.java
