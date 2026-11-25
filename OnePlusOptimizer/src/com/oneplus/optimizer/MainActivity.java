@@ -1,15 +1,21 @@
 package com.oneplus.optimizer;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.app.TimePickerDialog;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.os.BatteryManager;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.StatFs;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -27,9 +33,9 @@ public class MainActivity extends Activity {
 
     private static final int SHIZUKU_REQUEST_CODE = 1001;
 
-    // 1. Hardware Specs Views
+    // 1. Hardware Specs Pill & Card Views
     private TextView mTvDeviceHeaderBadge;
-    private TextView mTvSpecChip;
+    private TextView mTvSpecBadge;
     private TextView mTvSpecSoc;
     private TextView mTvSpecRam;
     private TextView mTvSpecStorage;
@@ -75,6 +81,7 @@ public class MainActivity extends Activity {
     private TextView mTvBankingBadge;
     private Switch mSwitchShizukuCloak;
     private Switch mSwitchShizukuDeepFreeze;
+    private TextView mTvDeepFreezeBadge;
     private TextView mTvCertStatus;
     private Button mBtnManageCerts;
     private TextView mTvRiskStatus;
@@ -90,8 +97,20 @@ public class MainActivity extends Activity {
     private Switch mSwitchBloatwareShield;
     private Button mBtnCleanBloatware;
 
+    // 4b. Hidden Advanced Status Badges
+    private TextView mTvStayAwakeBadge;
+    private TextView mTvSmartChargingBadge;
+    private TextView mTvHighRefreshBadge;
+
     // 6. Master Optimize
     private Button mBtnMasterOptimize;
+    private Button mBtnMasterConfigDefault;
+    private Button mBtnMasterRunOnetime;
+    private TextView mTvMasterTasksSummary;
+    private Switch mSwitchMasterBloatware;
+    private Switch mSwitchBootAutoOptimize;
+    private TextView mTvBootAutoOptimizeStatus;
+    private volatile boolean mPendingBootAutoOptimize = false;
 
     // 7. Battery Health & Charging Views
     private TextView mTvBypassStatus;
@@ -113,6 +132,8 @@ public class MainActivity extends Activity {
     // 9. System UI & Gestures Views
     private Switch mSwitchWeatherTamer;
     private Button mBtnAnim0, mBtnAnim05, mBtnAnim1;
+    private TextView mTvSmallestWidthDesc;
+    private Button mBtnSw360, mBtnSw420, mBtnSw480, mBtnSw520, mBtnSw560, mBtnSw580, mBtnSwReset;
     private Switch mSwitchGestureNav;
     private Button mBtnRestoreGestures;
     private Button mBtnGesturesInfo;
@@ -120,6 +141,9 @@ public class MainActivity extends Activity {
     // 10. Daily Automation Views
     private Switch mSwitchDailyAutocare;
     private Button mBtnPickTime;
+    private TextView mTvDailyTasksSummary;
+    private Button mBtnDailyConfigDefault;
+    private Button mBtnDailyConfigOnetime;
 
     // 11. Performance & Native Compilation Views
     private Button mBtnCompileCore;
@@ -216,12 +240,21 @@ public class MainActivity extends Activity {
 
         initViews();
         setupListeners();
+        handleBootAutoOptimizeIntent(getIntent());
 
         try {
             Shizuku.addBinderReceivedListenerSticky(mBinderReceivedListener);
             Shizuku.addBinderDeadListener(mBinderDeadListener);
             Shizuku.addRequestPermissionResultListener(mPermissionListener);
         } catch (Throwable ignored) {}
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleBootAutoOptimizeIntent(intent);
+        checkAndRefreshStatus();
     }
 
     @Override
@@ -256,16 +289,15 @@ public class MainActivity extends Activity {
     }
 
     private void initViews() {
-        // 1. Hardware Specs
+        // 1. Header Pill & Hardware Specs
         mTvDeviceHeaderBadge = findViewById(R.id.tv_device_header_badge);
-        mTvSpecChip = findViewById(R.id.tv_spec_chip);
+        mTvSpecBadge = findViewById(R.id.tv_spec_badge);
         mTvSpecSoc = findViewById(R.id.tv_spec_soc);
         mTvSpecRam = findViewById(R.id.tv_spec_ram);
         mTvSpecStorage = findViewById(R.id.tv_spec_storage);
         mTvSpecDisplay = findViewById(R.id.tv_spec_display);
         mTvSpecBattery = findViewById(R.id.tv_spec_battery);
         mTvSpecOs = findViewById(R.id.tv_spec_os);
-        populateDeviceHardwareOffline();
 
         // 2. Metrics
         mTvMetricRam = findViewById(R.id.tv_metric_ram);
@@ -305,6 +337,7 @@ public class MainActivity extends Activity {
         mTvBankingBadge = findViewById(R.id.tv_banking_badge);
         mSwitchShizukuCloak = findViewById(R.id.switch_shizuku_cloak);
         mSwitchShizukuDeepFreeze = findViewById(R.id.switch_shizuku_deep_freeze);
+        mTvDeepFreezeBadge = findViewById(R.id.tv_deep_freeze_badge);
         mTvCertStatus = findViewById(R.id.tv_cert_status);
         mBtnManageCerts = findViewById(R.id.btn_manage_certs);
         mTvRiskStatus = findViewById(R.id.tv_risk_apps_status);
@@ -322,6 +355,17 @@ public class MainActivity extends Activity {
 
         // 6. Master Optimize
         mBtnMasterOptimize = findViewById(R.id.btn_master_optimize);
+        mBtnMasterConfigDefault = findViewById(R.id.btn_master_config_default);
+        mBtnMasterRunOnetime = findViewById(R.id.btn_master_run_onetime);
+        mTvMasterTasksSummary = findViewById(R.id.tv_master_tasks_summary);
+        mSwitchMasterBloatware = findViewById(R.id.switch_master_bloatware);
+        mSwitchBootAutoOptimize = findViewById(R.id.switch_boot_auto_optimize);
+        mTvBootAutoOptimizeStatus = findViewById(R.id.tv_boot_auto_optimize_status);
+
+        // Hidden Advanced Badges
+        mTvStayAwakeBadge = findViewById(R.id.tv_stay_awake_badge);
+        mTvSmartChargingBadge = findViewById(R.id.tv_smart_charging_badge);
+        mTvHighRefreshBadge = findViewById(R.id.tv_high_refresh_badge);
 
         // 7. Battery Health & Charging
         mTvBypassStatus = findViewById(R.id.tv_bypass_status);
@@ -345,6 +389,14 @@ public class MainActivity extends Activity {
         mBtnAnim0 = findViewById(R.id.btn_anim_0);
         mBtnAnim05 = findViewById(R.id.btn_anim_05);
         mBtnAnim1 = findViewById(R.id.btn_anim_1);
+        mTvSmallestWidthDesc = findViewById(R.id.tv_smallest_width_desc);
+        mBtnSw360 = findViewById(R.id.btn_sw_360);
+        mBtnSw420 = findViewById(R.id.btn_sw_420);
+        mBtnSw480 = findViewById(R.id.btn_sw_480);
+        mBtnSw520 = findViewById(R.id.btn_sw_520);
+        mBtnSw560 = findViewById(R.id.btn_sw_560);
+        mBtnSw580 = findViewById(R.id.btn_sw_580);
+        mBtnSwReset = findViewById(R.id.btn_sw_reset);
         mSwitchGestureNav = findViewById(R.id.switch_gesture_navigation);
         mBtnRestoreGestures = findViewById(R.id.btn_restore_gestures);
         mBtnGesturesInfo = findViewById(R.id.btn_gestures_info);
@@ -352,6 +404,9 @@ public class MainActivity extends Activity {
         // 10. Daily Automation
         mSwitchDailyAutocare = findViewById(R.id.switch_daily_autocare);
         mBtnPickTime = findViewById(R.id.btn_pick_time);
+        mTvDailyTasksSummary = findViewById(R.id.tv_daily_tasks_summary);
+        mBtnDailyConfigDefault = findViewById(R.id.btn_daily_config_default);
+        mBtnDailyConfigOnetime = findViewById(R.id.btn_daily_config_onetime);
 
         // 11. Performance & Native Compilation
         mBtnCompileCore = findViewById(R.id.btn_compile_core);
@@ -367,6 +422,12 @@ public class MainActivity extends Activity {
         mTvConsole = findViewById(R.id.tv_console);
         mScrollConsole = findViewById(R.id.scroll_console);
         mTvClearLog = findViewById(R.id.tv_clear_log);
+
+        setupCollapsibleSections();
+        RevampHelpCatalog.bindAll(this);
+        populateHardwareSpecsOffline();
+        updateTaskSummariesUi();
+        syncBootAutoOptimizeUi();
 
         SharedPreferences prefs = getSharedPreferences(DailyAlarmReceiver.PREF_NAME, Context.MODE_PRIVATE);
         boolean dailyActive = prefs.getBoolean(DailyAlarmReceiver.PREF_DAILY_ENABLED, true);
@@ -501,7 +562,7 @@ public class MainActivity extends Activity {
                 if (!success) {
                     new AlertDialog.Builder(this)
                         .setTitle("Enable Developer Options")
-                        .setMessage("To re-enable Developer Options on OxygenOS 15:\n\n" +
+                        .setMessage("To re-enable Developer Options on " + getOsLabel() + ":\n\n" +
                                     "1. Tap 'Open About Device' below.\n" +
                                     "2. Tap 'Version', then tap 'Build number' 7 times rapidly.\n" +
                                     "3. Return to this app and tap 'Dev Settings' to turn on USB & Wireless Debugging.")
@@ -591,6 +652,7 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {}
             runAsync("Stay Awake Toggle", service -> {
                 boolean stayAwake = service.setStayAwakeWhileCharging(isChecked);
+                mHandler.post(() -> updateStayAwakeBadge(stayAwake));
                 logConsole(stayAwake ? "✔ Stay Awake While Charging ENABLED (Screen never sleeps while plugged in)" 
                                      : "• Stay Awake While Charging DISABLED (Normal screen timeout)");
             });
@@ -801,13 +863,59 @@ public class MainActivity extends Activity {
         }));
 
         // 6. Master Optimization
-        mBtnMasterOptimize.setOnClickListener(v -> runAsync("Master Optimization", service -> {
-            logConsole("⚡ Executing Master System Optimization...");
-            String res = service.runMasterOptimization();
-            logConsole(res);
-            refreshSwitches(service);
-            refreshMetrics(service);
-        }));
+        mBtnMasterOptimize.setOnClickListener(v -> runSelectedTasksNow(
+            "Master Optimization (Default)", TaskConfig.getDefaultMasterTasksCsv(this)));
+
+        mBtnMasterConfigDefault.setOnClickListener(v ->
+            showTaskPickerDialog(TaskPickerMode.MASTER_DEFAULT));
+
+        mBtnMasterRunOnetime.setOnClickListener(v ->
+            showTaskPickerDialog(TaskPickerMode.MASTER_ONETIME));
+
+        mSwitchMasterBloatware.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (mUpdatingSwitches) return;
+            TaskConfig.setBloatwareEnabledInMaster(this, isChecked);
+            updateTaskSummariesUi();
+            logConsole(isChecked
+                ? "✔ OEM Bloatware & Telemetry Shield INCLUDED in Master Optimization Default"
+                : "• OEM Bloatware & Telemetry Shield EXCLUDED from Master Optimization Default");
+        });
+
+        mSwitchBootAutoOptimize.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (mUpdatingSwitches) return;
+            TaskConfig.setBootAutoOptimizeEnabled(this, isChecked);
+            syncBootAutoOptimizeUi();
+            if (isChecked) {
+                if (ShizukuManager.isShizukuAvailable() && ShizukuManager.hasShizukuPermission()) {
+                    runAsync("Boot Auto-Launch Permissions", service -> {
+                        service.executeShell("cmd appops set com.oneplus.optimizer SYSTEM_ALERT_WINDOW allow 2>/dev/null || true");
+                        service.executeShell("cmd appops set com.oneplus.optimizer RUN_IN_BACKGROUND allow 2>/dev/null || true");
+                        service.executeShell("cmd appops set com.oneplus.optimizer RUN_ANY_IN_BACKGROUND allow 2>/dev/null || true");
+                        service.executeShell("cmd appops set com.oneplus.optimizer START_FOREGROUND allow 2>/dev/null || true");
+                        service.executeShell("cmd deviceidle whitelist +com.oneplus.optimizer 2>/dev/null || true");
+                        mHandler.post(this::syncBootAutoOptimizeUi);
+                        logConsole("✔ Boot Auto-Optimize ENABLED + overlay/background launch permissions pre-granted via Shizuku.");
+                    });
+                } else {
+                    logConsole("✔ Boot Auto-Optimize ENABLED.");
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !android.provider.Settings.canDrawOverlays(this)) {
+                        new AlertDialog.Builder(this)
+                            .setTitle("Allow Display Over Other Apps")
+                            .setMessage("Android 17 requires 'Display over other apps' permission for Revamp Hub to auto-open on screen immediately after a phone reboot (or tap its notification). Grant now?")
+                            .setPositiveButton("Open Overlay Settings", (d, w) -> {
+                                try {
+                                    startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        android.net.Uri.parse("package:" + getPackageName())));
+                                } catch (Exception ignored) {}
+                            })
+                            .setNegativeButton("Later", null)
+                            .show();
+                    }
+                }
+            } else {
+                logConsole("• Boot Auto-Optimize DISABLED.");
+            }
+        });
 
         // 7. Battery Health & Charging Listeners
         mSwitchChargeLimit.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -824,6 +932,7 @@ public class MainActivity extends Activity {
             if (mUpdatingSwitches) return;
             runAsync("Smart Charging Toggle", service -> {
                 boolean active = service.setSmartChargingEnabled(isChecked);
+                mHandler.post(() -> updateSmartChargingBadge(active));
                 logConsole(active ? "⚠ Smart Charging ENABLED (May charge to 100% on schedule)"
                                   : "✔ Smart Charging DISABLED (80% Custom Limit Preserved)");
             });
@@ -875,7 +984,7 @@ public class MainActivity extends Activity {
             if (mUpdatingSwitches) return;
             runAsync("Resolution Toggle", service -> {
                 boolean active = service.setFhdResolutionEnabled(isChecked);
-                logConsole(active ? "✔ FHD+ Standard Resolution ENABLED (Dynamic Scaling)\n  GPU workload optimized, gestures unaffected." 
+                logConsole(active ? "✔ FHD+ Standard Resolution ENABLED (Dynamic Scaling)\n  GPU workload optimized, gestures unaffected."
                                   : "✔ Native High Resolution RESTORED\n  Maximum panel sharpness active.");
                 mHandler.post(() -> {
                     if (mTvResolutionDesc != null) {
@@ -890,6 +999,7 @@ public class MainActivity extends Activity {
             if (mUpdatingSwitches) return;
             runAsync("Refresh Rate Toggle", service -> {
                 boolean active = service.setHighRefreshEnabled(isChecked);
+                mHandler.post(() -> updateHighRefreshBadge(active));
                 logConsole(active ? "✔ Extreme Refresh Rate LOCKED (Peak Hz)" : "• Extreme Refresh Rate Adaptive");
             });
         });
@@ -918,6 +1028,7 @@ public class MainActivity extends Activity {
         });
 
         setupAnimationButtons();
+        setupSmallestWidthButtons();
 
         mSwitchGestureNav.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (mUpdatingSwitches) return;
@@ -958,6 +1069,8 @@ public class MainActivity extends Activity {
         });
 
         mBtnPickTime.setOnClickListener(v -> showTimePicker());
+        mBtnDailyConfigDefault.setOnClickListener(v -> showTaskPickerDialog(TaskPickerMode.DAILY_DEFAULT));
+        mBtnDailyConfigOnetime.setOnClickListener(v -> showTaskPickerDialog(TaskPickerMode.DAILY_ONETIME));
 
         // 11. Performance & Compilation Listeners
         mBtnCompileCore.setOnClickListener(v -> runAsync("Speed Compilation Core", service -> {
@@ -1299,22 +1412,14 @@ public class MainActivity extends Activity {
                         "2. Pauses Accessibility & Private DNS + cleans /data/local/tmp APKs\n" +
                         "3. Cloaks AdGuard VPN, ReVanced, Morphe & all modding tools\n" +
                         "4. Conceals Dev Options, USB ADB & Wireless ADB\n" +
-                        "5. Turns Watchdog OFF & stops shizuku_server cleanly\n\n" + warnOrig)
+                        "5. Turns Watchdog OFF & stops shizuku_server cleanly\n\n" +
+                        warnOrig + "\n\n" +
+                        "Note: Emergency 'Deep Freeze APK' (requires PC ADB to unfreeze) is tucked under Banking & UPI Stealth → Advanced if ever needed.")
             .setPositiveButton(isSpoofed ? "Engage Stealth (Recommended)" : "Stealth Cloak Only", (d, w) -> {
                 SharedPreferences cloakPrefs = getSharedPreferences("revamp_stealth_prefs", Context.MODE_PRIVATE);
                 cloakPrefs.edit().putBoolean("pref_shizuku_cloaked", true).putBoolean("pref_pending_banking_restore", false).apply();
                 runAsync("Engage Full Stealth", service -> {
                     String res = service.engageFullBankingStealth(false);
-                    ShizukuManager.clearCachedService();
-                    logConsole(res);
-                    mHandler.postDelayed(this::checkAndRefreshStatus, 950);
-                });
-            })
-            .setNeutralButton("+ Deep Freeze APK", (d, w) -> {
-                SharedPreferences cloakPrefs = getSharedPreferences("revamp_stealth_prefs", Context.MODE_PRIVATE);
-                cloakPrefs.edit().putBoolean("pref_shizuku_cloaked", true).putBoolean("pref_pending_banking_restore", false).apply();
-                runAsync("Engage Full Stealth + Deep Freeze", service -> {
-                    String res = service.engageFullBankingStealth(true);
                     ShizukuManager.clearCachedService();
                     logConsole(res);
                     mHandler.postDelayed(this::checkAndRefreshStatus, 950);
@@ -1351,7 +1456,7 @@ public class MainActivity extends Activity {
                         "3. Paste '" + suggestedPkg + "' into Package name (do NOT leave blank) & tap 'Hide'.\n" +
                         "4. Approve uninstalling original Shizuku when prompted.\n" +
                         "5. If no install popup appears after uninstall, open File Manager → Internal storage → 'Shizuku' folder and install the exported APK.\n" +
-                        "6. CRITICAL: Do NOT tap 'Unhide with stub'. Start the new 'System Helper' app and grant OnePlus Revamp Hub access.")
+                        "6. CRITICAL: Do NOT tap 'Unhide with stub'. Start the new 'System Helper' app and grant Android Revamp Hub access.")
             .setPositiveButton("Open Shizuku", (d, w) -> openShizukuApp())
             .setNegativeButton("Done", (d, w) -> checkAndRefreshStatus())
             .show();
@@ -1445,7 +1550,7 @@ public class MainActivity extends Activity {
         final String cmd = "adb shell pm enable " + shizPkg;
         new AlertDialog.Builder(this)
             .setTitle("Shizuku APK Is Deep Frozen")
-            .setMessage(shizPkg + " is disabled by Deep Freeze.\n\nBecause Android 15 prevents unprivileged apps from enabling disabled packages while Shizuku is stopped, run this ADB command from your computer to unfreeze:\n\n" + cmd)
+            .setMessage(shizPkg + " is disabled by Deep Freeze.\n\nBecause Android " + Build.VERSION.RELEASE + " prevents unprivileged apps from enabling disabled packages while Shizuku is stopped, run this ADB command from your computer to unfreeze:\n\n" + cmd)
             .setPositiveButton("Copy Command", (d, w) -> {
                 android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                 if (cm != null) {
@@ -1483,6 +1588,11 @@ public class MainActivity extends Activity {
             if (mSwitchVerifyAdbApps != null) mSwitchVerifyAdbApps.setChecked(verifyAdb);
             if (mSwitchWfdCertification != null) mSwitchWfdCertification.setChecked(wfdCert);
             if (mSwitchStayAwake != null) mSwitchStayAwake.setChecked(stayAwake);
+            updateStayAwakeBadge(stayAwake);
+            if (mSwitchMasterBloatware != null) mSwitchMasterBloatware.setChecked(TaskConfig.isBloatwareEnabledInMaster(this));
+            if (mSwitchBootAutoOptimize != null) mSwitchBootAutoOptimize.setChecked(TaskConfig.isBootAutoOptimizeEnabled(this));
+            syncBootAutoOptimizeUi();
+            updateTaskSummariesUi();
 
             boolean frozen = isShizukuPackageDisabled();
             boolean stopped = isShizukuPackageStopped();
@@ -1492,6 +1602,7 @@ public class MainActivity extends Activity {
 
             if (mSwitchShizukuCloak != null) mSwitchShizukuCloak.setChecked(cloaked);
             if (mSwitchShizukuDeepFreeze != null) mSwitchShizukuDeepFreeze.setChecked(frozen);
+            updateDeepFreezeBadge(frozen);
 
             boolean bankingOfflineActive = !devOn && !usbAdb && !wirelessAdb;
             if (mSwitchBankingMode != null) mSwitchBankingMode.setChecked(bankingOfflineActive);
@@ -1576,23 +1687,40 @@ public class MainActivity extends Activity {
         ShizukuManager.getService(this, new ShizukuManager.Callback() {
             @Override
             public void onReady(IUserService service) {
-                if (pendingRestore) {
+                final boolean runBootNow = mPendingBootAutoOptimize;
+                if (runBootNow) {
+                    mPendingBootAutoOptimize = false;
+                    android.app.NotificationManager nm = (android.app.NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                    if (nm != null) nm.cancel(3099);
+                }
+                if (pendingRestore || runBootNow) {
                     new Thread(() -> {
-                        try {
-                            String msg = service.exitFullBankingStealth();
-                            logConsole("✔ Auto-Restore: " + msg);
-                        } catch (Exception ignored) {}
+                        if (pendingRestore) {
+                            try {
+                                String msg = service.exitFullBankingStealth();
+                                logConsole("✔ Auto-Restore: " + msg);
+                            } catch (Exception ignored) {}
+                        }
+                        if (runBootNow) {
+                            try {
+                                logConsole("🔄 Reboot Auto-Optimize triggered — executing Default Master Optimization...");
+                                String res = service.runSelectedOptimizations(TaskConfig.getDefaultMasterTasksCsv(MainActivity.this));
+                                logConsole(res);
+                            } catch (Exception e) {
+                                logConsole("❌ Reboot Auto-Optimize error: " + e.getMessage());
+                            }
+                        }
                         mHandler.post(() -> {
+                            refreshHardwareSpecs(service);
                             refreshSwitches(service);
                             refreshMetrics(service);
-                            refreshHardwareSpecs(service);
                         });
                     }).start();
                 } else {
                     mHandler.post(() -> {
+                        refreshHardwareSpecs(service);
                         refreshSwitches(service);
                         refreshMetrics(service);
-                        refreshHardwareSpecs(service);
                     });
                 }
             }
@@ -1604,82 +1732,13 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void populateDeviceHardwareOffline() {
-        try {
-            String mfg = android.os.Build.MANUFACTURER != null ? android.os.Build.MANUFACTURER : "Android";
-            String model = android.os.Build.MODEL != null ? android.os.Build.MODEL : "Device";
-            String titleModel = mfg.substring(0, 1).toUpperCase(Locale.US) + mfg.substring(1) + " " + model;
-            if (mTvDeviceHeaderBadge != null) {
-                mTvDeviceHeaderBadge.setText(titleModel + " • Android " + android.os.Build.VERSION.RELEASE + " (SDK " + android.os.Build.VERSION.SDK_INT + ")");
-            }
-            if (mTvSpecChip != null) {
-                mTvSpecChip.setText(android.os.Build.DEVICE != null ? android.os.Build.DEVICE.toUpperCase(Locale.US) : "ANDROID");
-            }
-            if (mTvSpecSoc != null) {
-                String hw = android.os.Build.HARDWARE != null ? android.os.Build.HARDWARE : "ARM64";
-                String abi = android.os.Build.SUPPORTED_ABIS.length > 0 ? android.os.Build.SUPPORTED_ABIS[0] : "arm64-v8a";
-                mTvSpecSoc.setText("⚡ Processor: " + hw + " (" + abi + ")");
-            }
-            if (mTvSpecRam != null) {
-                android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
-                if (am != null) {
-                    android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
-                    am.getMemoryInfo(mi);
-                    double totalGb = mi.totalMem / (1024.0 * 1024.0 * 1024.0);
-                    mTvSpecRam.setText(String.format(Locale.US, "🧠 RAM: %.1f GB Total System Memory", totalGb));
-                }
-            }
-            if (mTvSpecStorage != null) {
-                android.os.StatFs stat = new android.os.StatFs(android.os.Environment.getDataDirectory().getPath());
-                double totalGb = stat.getTotalBytes() / (1024.0 * 1024.0 * 1024.0);
-                mTvSpecStorage.setText(String.format(Locale.US, "💾 Storage: %.0f GB Usable Internal Data", totalGb));
-            }
-            if (mTvSpecDisplay != null) {
-                android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-                float refreshHz = getWindowManager().getDefaultDisplay().getRefreshRate();
-                mTvSpecDisplay.setText(String.format(Locale.US, "📱 Display: %dx%d @ %d DPI • %.0fHz", dm.widthPixels, dm.heightPixels, dm.densityDpi, refreshHz));
-            }
-            if (mTvSpecBattery != null) {
-                android.os.BatteryManager bm = (android.os.BatteryManager) getSystemService(Context.BATTERY_SERVICE);
-                int pct = bm != null ? bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) : 0;
-                mTvSpecBattery.setText("🔋 Battery: " + (pct > 0 ? pct + "% Charged" : "Standard Battery Subsystem"));
-            }
-            if (mTvSpecOs != null) {
-                mTvSpecOs.setText("⚙️ OS: Android " + android.os.Build.VERSION.RELEASE + " • " + android.os.Build.DISPLAY);
-            }
-        } catch (Exception ignored) {}
-    }
-
-    private void refreshHardwareSpecs(IUserService service) {
-        new Thread(() -> {
-            try {
-                String jsonStr = service.getHardwareSpecsJson();
-                JSONObject obj = new JSONObject(jsonStr);
-                String soc = obj.optString("soc", "");
-                String ram = obj.optString("ram", "");
-                String storage = obj.optString("storage", "");
-                String display = obj.optString("display", "");
-                String battery = obj.optString("battery", "");
-                String os = obj.optString("os", "");
-                mHandler.post(() -> {
-                    if (!soc.isEmpty() && mTvSpecSoc != null) mTvSpecSoc.setText("⚡ Processor: " + soc);
-                    if (!ram.isEmpty() && mTvSpecRam != null) mTvSpecRam.setText("🧠 RAM: " + ram);
-                    if (!storage.isEmpty() && mTvSpecStorage != null) mTvSpecStorage.setText("💾 Storage: " + storage);
-                    if (!display.isEmpty() && mTvSpecDisplay != null) mTvSpecDisplay.setText("📱 Display: " + display);
-                    if (!battery.isEmpty() && mTvSpecBattery != null) mTvSpecBattery.setText("🔋 Battery: " + battery);
-                    if (!os.isEmpty() && mTvSpecOs != null) mTvSpecOs.setText("⚙️ OS: " + os);
-                });
-            } catch (Exception ignored) {}
-        }).start();
-    }
-
     private void refreshMetrics(IUserService service) {
         new Thread(() -> {
             try {
                 String jsonStr = service.getSystemMetricsJson();
                 JSONObject obj = new JSONObject(jsonStr);
                 String ramUsed = obj.optString("ram_used", "--");
-                String ramTotal = obj.optString("ram_total", "--");
+                String ramTotal = obj.optString("ram_total", "16");
                 int ramPct = obj.optInt("ram_pct", 0);
 
                 int batLevel = obj.optInt("bat_level", 0);
@@ -1737,6 +1796,8 @@ public class MainActivity extends Activity {
                 // Daemons & UI
                 boolean weatherTamer = service.isWeatherTamerEnabled();
                 float animSpeed = service.getAnimationSpeed();
+                int smallestWidthDp = service.getSmallestWidthDp();
+                int smallestWidthDpi = service.getSmallestWidthDpi();
                 boolean gestureNav = service.isGestureNavigationEnabled();
 
                 mHandler.post(() -> {
@@ -1752,10 +1813,12 @@ public class MainActivity extends Activity {
                     if (mSwitchVerifyAdbApps != null) mSwitchVerifyAdbApps.setChecked(verifyAdb);
                     if (mSwitchWfdCertification != null) mSwitchWfdCertification.setChecked(wfdCert);
                     if (mSwitchStayAwake != null) mSwitchStayAwake.setChecked(stayAwake);
+                    updateStayAwakeBadge(stayAwake);
 
                     // Charging
                     mSwitchChargeLimit.setChecked(limit80);
                     mSwitchSmartCharging.setChecked(smartChg);
+                    updateSmartChargingBadge(smartChg);
                     mSwitchBypassCharging.setChecked(bypassChg);
                     if (mTvBypassStatus != null) {
                         mTvBypassStatus.setText(bypassStatus);
@@ -1773,6 +1836,7 @@ public class MainActivity extends Activity {
                     mSwitchCellularSleep.setChecked(cellSleep);
                     mSwitchFhdResolution.setChecked(fhd);
                     mSwitchHighRefresh.setChecked(highRefresh);
+                    updateHighRefreshBadge(highRefresh);
                     mSwitchAodSmartMode.setChecked(aodSmart);
                     if (mTvResolutionDesc != null) {
                         mTvResolutionDesc.setText(fhd ? "Active: FHD+ Standard Mode • Power Saving"
@@ -1784,6 +1848,16 @@ public class MainActivity extends Activity {
                     mSwitchAaCableOnly.setChecked(cableOnly);
                     mSwitchBloatwareShield.setChecked(bloatShield);
 
+                    // Master & Daily Task Summaries
+                    if (mSwitchMasterBloatware != null) {
+                        mSwitchMasterBloatware.setChecked(TaskConfig.isBloatwareEnabledInMaster(MainActivity.this));
+                    }
+                    if (mSwitchBootAutoOptimize != null) {
+                        mSwitchBootAutoOptimize.setChecked(TaskConfig.isBootAutoOptimizeEnabled(MainActivity.this));
+                    }
+                    syncBootAutoOptimizeUi();
+                    updateTaskSummariesUi();
+
                     // Banking & UPI Stealth
                     if (mSwitchBankingMode != null) {
                         mSwitchBankingMode.setChecked(bankingMode);
@@ -1794,6 +1868,7 @@ public class MainActivity extends Activity {
                     if (mSwitchShizukuDeepFreeze != null) {
                         mSwitchShizukuDeepFreeze.setChecked(shizukuFrozen);
                     }
+                    updateDeepFreezeBadge(shizukuFrozen);
                     if (mTvBankingStatus != null) {
                         mTvBankingStatus.setText(bankingMode ? "Active: Dev Mode & Sideloaded Apps Hidden (Safe for Banking)" : "Standby: Dev Mode & Apps Visible");
                     }
@@ -1816,9 +1891,10 @@ public class MainActivity extends Activity {
                     updateRiskAppsUi(riskReport);
                     populateRiskAppsList(detailedRiskJson, service);
 
-                    // Daemons
+                    // Daemons & UI
                     mSwitchWeatherTamer.setChecked(weatherTamer);
                     updateAnimationSpeedUi(animSpeed);
+                    updateSmallestWidthUi(smallestWidthDp, smallestWidthDpi);
                     mSwitchGestureNav.setChecked(gestureNav);
 
                     mUpdatingSwitches = false;
@@ -1989,6 +2065,10 @@ public class MainActivity extends Activity {
 
         // Master & Metrics
         mBtnMasterOptimize.setEnabled(enabled);
+        if (mBtnMasterConfigDefault != null) mBtnMasterConfigDefault.setEnabled(true);
+        if (mBtnMasterRunOnetime != null) mBtnMasterRunOnetime.setEnabled(enabled);
+        if (mSwitchMasterBloatware != null) mSwitchMasterBloatware.setEnabled(true);
+        if (mSwitchBootAutoOptimize != null) mSwitchBootAutoOptimize.setEnabled(true);
         mBtnMetricTrimCache.setEnabled(enabled);
         mBtnMetricFlushRam.setEnabled(enabled);
 
@@ -2027,12 +2107,17 @@ public class MainActivity extends Activity {
         mBtnAnim0.setEnabled(enabled);
         mBtnAnim05.setEnabled(enabled);
         mBtnAnim1.setEnabled(enabled);
+        for (Button b : getSmallestWidthButtons()) {
+            if (b != null) b.setEnabled(enabled);
+        }
         mSwitchGestureNav.setEnabled(enabled);
         mBtnRestoreGestures.setEnabled(enabled);
 
         // Daily Auto-Care
         mSwitchDailyAutocare.setEnabled(enabled);
         mBtnPickTime.setEnabled(enabled);
+        if (mBtnDailyConfigDefault != null) mBtnDailyConfigDefault.setEnabled(true);
+        if (mBtnDailyConfigOnetime != null) mBtnDailyConfigOnetime.setEnabled(true);
 
         // Manual Storage
         mBtnScanStorage.setEnabled(enabled);
@@ -2065,6 +2150,444 @@ public class MainActivity extends Activity {
                         ShizukuManager.isShizukuAvailable() && ShizukuManager.hasShizukuPermission()));
                 }
             });
+        }).start();
+    }
+
+    private void setupCollapsibleSections() {
+        int[][] sections = new int[][] {
+            { R.id.header_hw_specs, R.id.body_hw_specs, R.id.arrow_hw_specs, 0 },
+            { R.id.header_live_metrics, R.id.body_live_metrics, R.id.arrow_live_metrics, 0 },
+            { R.id.header_master_opt, R.id.body_master_opt, R.id.arrow_master_opt, 0 },
+            { R.id.header_terminal, R.id.body_terminal, R.id.arrow_terminal, 0 },
+            { R.id.header_debugging, R.id.body_debugging, R.id.arrow_debugging, 0 },
+            { R.id.header_dev_tuning, R.id.body_dev_tuning, R.id.arrow_dev_tuning, 0 },
+            { R.id.header_stay_awake_advanced, R.id.body_stay_awake_advanced, R.id.arrow_stay_awake_advanced, 1 },
+            { R.id.header_banking, R.id.body_banking, R.id.arrow_banking, 0 },
+            { R.id.header_deep_freeze_advanced, R.id.body_deep_freeze_advanced, R.id.arrow_deep_freeze_advanced, 1 },
+            { R.id.header_risk_apps_expand, R.id.body_risk_apps, R.id.arrow_risk_apps, 1 },
+            { R.id.header_shields, R.id.body_shields, R.id.arrow_shields, 0 },
+            { R.id.header_battery_health, R.id.body_battery_health, R.id.arrow_battery_health, 0 },
+            { R.id.header_smart_charging_advanced, R.id.body_smart_charging_advanced, R.id.arrow_smart_charging_advanced, 1 },
+            { R.id.header_power_tuning, R.id.body_power_tuning, R.id.arrow_power_tuning, 0 },
+            { R.id.header_high_refresh_advanced, R.id.body_high_refresh_advanced, R.id.arrow_high_refresh_advanced, 1 },
+            { R.id.header_ui_gestures, R.id.body_ui_gestures, R.id.arrow_ui_gestures, 0 },
+            { R.id.header_daily_care, R.id.body_daily_care, R.id.arrow_daily_care, 0 },
+            { R.id.header_perf_compile, R.id.body_perf_compile, R.id.arrow_perf_compile, 0 },
+            { R.id.header_storage_cleanup, R.id.body_storage_cleanup, R.id.arrow_storage_cleanup, 0 }
+        };
+        for (int[] s : sections) {
+            bindCollapsibleSection(s[0], s[1], s[2], s[3] == 1);
+        }
+    }
+
+    private void applyGlassHeaderState(View header, boolean expanded, boolean isSubSection) {
+        if (header == null) return;
+        int pL = header.getPaddingLeft();
+        int pT = header.getPaddingTop();
+        int pR = header.getPaddingRight();
+        int pB = header.getPaddingBottom();
+        int bgRes;
+        if (isSubSection) {
+            bgRes = expanded ? R.drawable.bg_sub_header_glass_expanded : R.drawable.bg_sub_header_glass;
+        } else {
+            bgRes = expanded ? R.drawable.bg_section_header_glass_expanded : R.drawable.bg_section_header_glass;
+        }
+        header.setBackgroundResource(bgRes);
+        header.setPadding(pL, pT, pR, pB);
+    }
+
+    private void bindCollapsibleSection(int headerId, int bodyId, int arrowId, boolean isSubSection) {
+        View header = findViewById(headerId);
+        View body = findViewById(bodyId);
+        TextView arrow = findViewById(arrowId);
+        if (header == null || body == null || arrow == null) return;
+        body.setVisibility(View.GONE);
+        arrow.setText("▸");
+        arrow.setTextColor(Color.parseColor("#93C5FD"));
+        applyGlassHeaderState(header, false, isSubSection);
+        header.setOnClickListener(v -> {
+            boolean willExpand = body.getVisibility() != View.VISIBLE;
+            body.setVisibility(willExpand ? View.VISIBLE : View.GONE);
+            arrow.setText(willExpand ? "▾" : "▸");
+            arrow.setTextColor(Color.parseColor(willExpand ? "#BFDBFE" : "#93C5FD"));
+            applyGlassHeaderState(header, willExpand, isSubSection);
+        });
+    }
+
+    private void updateDeepFreezeBadge(boolean frozen) {
+        if (mTvDeepFreezeBadge == null) return;
+        mTvDeepFreezeBadge.setText(frozen ? "ACTIVE (FROZEN)" : "STANDBY");
+        mTvDeepFreezeBadge.setTextColor(Color.parseColor(frozen ? "#FF5252" : "#6E6E78"));
+    }
+
+    private void updateStayAwakeBadge(boolean active) {
+        if (mTvStayAwakeBadge == null) return;
+        mTvStayAwakeBadge.setText(active ? "ACTIVE" : "OFF");
+        mTvStayAwakeBadge.setTextColor(Color.parseColor(active ? "#FF9100" : "#6E6E78"));
+    }
+
+    private void updateSmartChargingBadge(boolean enabled) {
+        if (mTvSmartChargingBadge == null) return;
+        mTvSmartChargingBadge.setText(enabled ? "ON (OVERRIDES 80%)" : "OFF (SAFE)");
+        mTvSmartChargingBadge.setTextColor(Color.parseColor(enabled ? "#FF9100" : "#00E676"));
+    }
+
+    private void updateHighRefreshBadge(boolean locked) {
+        if (mTvHighRefreshBadge == null) return;
+        mTvHighRefreshBadge.setText(locked ? "PEAK HZ LOCK" : "ADAPTIVE");
+        mTvHighRefreshBadge.setTextColor(Color.parseColor(locked ? "#FF9100" : "#00E676"));
+    }
+
+    private Button[] getSmallestWidthButtons() {
+        return new Button[] { mBtnSw360, mBtnSw420, mBtnSw480, mBtnSw520, mBtnSw560, mBtnSw580, mBtnSwReset };
+    }
+
+    private static final int[] SW_PRESETS = new int[] { 360, 420, 480, 520, 560, 580, 0 };
+
+    private void setupSmallestWidthButtons() {
+        Button[] btns = getSmallestWidthButtons();
+        for (int i = 0; i < btns.length; i++) {
+            final Button btn = btns[i];
+            final int targetDp = SW_PRESETS[i];
+            if (btn == null) continue;
+            btn.setOnClickListener(v -> runAsync("Smallest Width " + (targetDp > 0 ? targetDp + "dp" : "Stock"), service -> {
+                String res = service.setSmallestWidthDp(targetDp);
+                int liveDp = service.getSmallestWidthDp();
+                int liveDpi = service.getSmallestWidthDpi();
+                logConsole(res);
+                mHandler.post(() -> updateSmallestWidthUi(liveDp, liveDpi));
+            }));
+        }
+    }
+
+    private void updateSmallestWidthUi(int activeDp, int activeDpi) {
+        if (mTvSmallestWidthDesc != null) {
+            String mode = activeDp >= 560 ? "Tablet View" : "Mobile View";
+            mTvSmallestWidthDesc.setText(String.format(Locale.US, "Active: %d dp (%d DPI) • %s", activeDp, activeDpi, mode));
+        }
+        Button[] btns = getSmallestWidthButtons();
+        for (int i = 0; i < btns.length - 1; i++) {
+            Button btn = btns[i];
+            if (btn == null) continue;
+            boolean match = Math.abs(activeDp - SW_PRESETS[i]) <= 2;
+            btn.setBackgroundResource(match ? R.drawable.bg_chip_selected : R.drawable.bg_chip);
+            btn.setTextColor(Color.parseColor(match ? "#EB0029" : "#F8F8FA"));
+        }
+    }
+
+    private void updateTaskSummariesUi() {
+        int total = TaskConfig.ALL_TASKS.length;
+        int masterDef = TaskConfig.getDefaultMasterTasks(this).size();
+        if (mTvMasterTasksSummary != null) {
+            mTvMasterTasksSummary.setText("Default Profile: " + masterDef + " of " + total + " tasks enabled");
+        }
+        int dailyDef = TaskConfig.getDefaultDailyTasks(this).size();
+        java.util.Set<String> dailyOneTime = TaskConfig.getOneTimeDailyTasks(this);
+        if (mTvDailyTasksSummary != null) {
+            if (dailyOneTime != null && !dailyOneTime.isEmpty()) {
+                mTvDailyTasksSummary.setText("Daily Default: " + dailyDef + " tasks • Next Run (One-Time): " + dailyOneTime.size() + " tasks queued");
+                mTvDailyTasksSummary.setTextColor(Color.parseColor("#FF9100"));
+            } else {
+                mTvDailyTasksSummary.setText("Daily Default: " + dailyDef + " of " + total + " tasks • Next Run: Default");
+                mTvDailyTasksSummary.setTextColor(Color.parseColor("#00E676"));
+            }
+        }
+    }
+
+    private void syncBootAutoOptimizeUi() {
+        if (mTvBootAutoOptimizeStatus == null) return;
+        boolean enabled = TaskConfig.isBootAutoOptimizeEnabled(this);
+        if (!enabled) {
+            mTvBootAutoOptimizeStatus.setText("Off: Manual launch after phone reboot");
+            mTvBootAutoOptimizeStatus.setTextColor(Color.parseColor("#95959E"));
+            return;
+        }
+        boolean canOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || android.provider.Settings.canDrawOverlays(this);
+        if (canOverlay) {
+            mTvBootAutoOptimizeStatus.setText("Active: Auto-opens after reboot & runs Default Master Opt");
+            mTvBootAutoOptimizeStatus.setTextColor(Color.parseColor("#00E676"));
+        } else {
+            mTvBootAutoOptimizeStatus.setText("Enabled (Needs Display-Over-Apps permission for instant auto-open)");
+            mTvBootAutoOptimizeStatus.setTextColor(Color.parseColor("#FF9100"));
+        }
+    }
+
+    private void runSelectedTasksNow(String title, final String tasksCsv) {
+        if (tasksCsv == null || tasksCsv.trim().isEmpty()) {
+            Toast.makeText(this, "No tasks selected!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        runAsync(title, service -> {
+            logConsole("⚡ Executing " + title + "...");
+            String res = service.runSelectedOptimizations(tasksCsv);
+            logConsole(res);
+            refreshSwitches(service);
+            refreshMetrics(service);
+        });
+    }
+
+    private enum TaskPickerMode {
+        MASTER_DEFAULT,
+        MASTER_ONETIME,
+        DAILY_DEFAULT,
+        DAILY_ONETIME
+    }
+
+    private void showTaskPickerDialog(final TaskPickerMode mode) {
+        final TaskConfig.TaskItem[] all = TaskConfig.ALL_TASKS;
+        final CharSequence[] labels = new CharSequence[all.length];
+        final boolean[] checked = new boolean[all.length];
+
+        java.util.Set<String> preselected;
+        if (mode == TaskPickerMode.MASTER_DEFAULT || mode == TaskPickerMode.MASTER_ONETIME) {
+            preselected = TaskConfig.getDefaultMasterTasks(this);
+        } else if (mode == TaskPickerMode.DAILY_ONETIME) {
+            java.util.Set<String> queued = TaskConfig.getOneTimeDailyTasks(this);
+            preselected = (queued != null && !queued.isEmpty()) ? queued : TaskConfig.getDefaultDailyTasks(this);
+        } else {
+            preselected = TaskConfig.getDefaultDailyTasks(this);
+        }
+
+        for (int i = 0; i < all.length; i++) {
+            labels[i] = all[i].title;
+            checked[i] = preselected.contains(all[i].key);
+        }
+
+        String title;
+        if (mode == TaskPickerMode.MASTER_DEFAULT) title = "Master Optimization: Default Tasks";
+        else if (mode == TaskPickerMode.MASTER_ONETIME) title = "Master Optimization: Custom One-Time Run";
+        else if (mode == TaskPickerMode.DAILY_DEFAULT) title = "Daily Auto-Care: Default Tasks";
+        else title = "Daily Auto-Care: One-Time Run / Override";
+
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMultiChoiceItems(labels, checked, (dialog, which, isChecked) -> checked[which] = isChecked);
+
+        if (mode == TaskPickerMode.MASTER_DEFAULT) {
+            b.setPositiveButton("Save Default", (d, w) -> {
+                java.util.Set<String> sel = collectCheckedKeys(all, checked);
+                TaskConfig.saveDefaultMasterTasks(this, sel);
+                mUpdatingSwitches = true;
+                if (mSwitchMasterBloatware != null) {
+                    mSwitchMasterBloatware.setChecked(sel.contains(TaskConfig.TASK_BLOATWARE_SHIELD));
+                }
+                mUpdatingSwitches = false;
+                updateTaskSummariesUi();
+                logConsole("✔ Saved Master Optimization Default (" + sel.size() + " tasks).");
+            });
+            b.setNeutralButton("Save & Run Now", (d, w) -> {
+                java.util.Set<String> sel = collectCheckedKeys(all, checked);
+                TaskConfig.saveDefaultMasterTasks(this, sel);
+                mUpdatingSwitches = true;
+                if (mSwitchMasterBloatware != null) {
+                    mSwitchMasterBloatware.setChecked(sel.contains(TaskConfig.TASK_BLOATWARE_SHIELD));
+                }
+                mUpdatingSwitches = false;
+                updateTaskSummariesUi();
+                runSelectedTasksNow("Master Optimization (Default)", TaskConfig.toOrderedCsv(sel));
+            });
+            b.setNegativeButton("Cancel", null);
+        } else if (mode == TaskPickerMode.MASTER_ONETIME) {
+            b.setPositiveButton("⚡ Run Once Now", (d, w) -> {
+                String csv = TaskConfig.toOrderedCsv(collectCheckedKeys(all, checked));
+                runSelectedTasksNow("Master One-Time Run", csv);
+            });
+            b.setNegativeButton("Cancel", null);
+        } else if (mode == TaskPickerMode.DAILY_DEFAULT) {
+            b.setPositiveButton("Save Daily Default", (d, w) -> {
+                java.util.Set<String> sel = collectCheckedKeys(all, checked);
+                TaskConfig.saveDefaultDailyTasks(this, sel);
+                updateTaskSummariesUi();
+                logConsole("✔ Saved Daily Auto-Care Default (" + sel.size() + " tasks).");
+            });
+            b.setNeutralButton("Reset Recommended", (d, w) -> {
+                java.util.Set<String> def = TaskConfig.buildBuiltInSet(false);
+                TaskConfig.saveDefaultDailyTasks(this, def);
+                updateTaskSummariesUi();
+                logConsole("• Reset Daily Auto-Care Default to recommended (" + def.size() + " tasks).");
+            });
+            b.setNegativeButton("Cancel", null);
+        } else {
+            b.setPositiveButton("⏰ Queue Next Run", (d, w) -> {
+                java.util.Set<String> sel = collectCheckedKeys(all, checked);
+                TaskConfig.saveOneTimeDailyTasks(this, sel);
+                updateTaskSummariesUi();
+                logConsole("✔ Queued One-Time Daily Auto-Care override (" + sel.size() + " tasks) for next run.");
+            });
+            b.setNeutralButton("▶ Run Selected Now", (d, w) -> {
+                String csv = TaskConfig.toOrderedCsv(collectCheckedKeys(all, checked));
+                runSelectedTasksNow("Daily One-Time Run", csv);
+            });
+            b.setNegativeButton("Clear / Cancel", (d, w) -> {
+                if (TaskConfig.getOneTimeDailyTasks(this) != null) {
+                    TaskConfig.saveOneTimeDailyTasks(this, null);
+                    updateTaskSummariesUi();
+                    logConsole("• Cleared queued One-Time Daily Auto-Care override.");
+                }
+            });
+        }
+        b.show();
+    }
+
+    private java.util.Set<String> collectCheckedKeys(TaskConfig.TaskItem[] all, boolean[] checked) {
+        java.util.Set<String> set = new java.util.LinkedHashSet<>();
+        for (int i = 0; i < all.length; i++) {
+            if (checked[i]) set.add(all[i].key);
+        }
+        return set;
+    }
+
+    private void handleBootAutoOptimizeIntent(Intent intent) {
+        if (intent == null || !intent.getBooleanExtra(BootReceiver.EXTRA_BOOT_AUTO_OPTIMIZE, false)) return;
+        intent.removeExtra(BootReceiver.EXTRA_BOOT_AUTO_OPTIMIZE);
+        mPendingBootAutoOptimize = true;
+
+        View termHeader = findViewById(R.id.header_terminal);
+        View termBody = findViewById(R.id.body_terminal);
+        TextView termArrow = findViewById(R.id.arrow_terminal);
+        if (termBody != null) termBody.setVisibility(View.VISIBLE);
+        if (termArrow != null) {
+            termArrow.setText("▾");
+            termArrow.setTextColor(Color.parseColor("#BFDBFE"));
+        }
+        applyGlassHeaderState(termHeader, true, false);
+
+        logConsole("🔄 Reboot launch detected — checking Shizuku to run Default Master Optimization...");
+        if (!ShizukuManager.isShizukuAvailable() || !ShizukuManager.hasShizukuPermission()) {
+            new AlertDialog.Builder(this)
+                .setTitle("Phone Rebooted — Start Shizuku")
+                .setMessage("Android Revamp Hub opened automatically after reboot.\n\nStart Shizuku once (tap Open Shizuku → Start via Wireless Debugging), then return here — Default Master Optimization will execute automatically.")
+                .setPositiveButton("Open Shizuku", (d, w) -> openShizukuApp())
+                .setNegativeButton("Later", null)
+                .show();
+        }
+    }
+
+    private String readSystemProp(String key, String fallback) {
+        try {
+            Class<?> sp = Class.forName("android.os.SystemProperties");
+            String val = (String) sp.getMethod("get", String.class, String.class).invoke(null, key, fallback);
+            return (val == null || val.trim().isEmpty()) ? fallback : val.trim();
+        } catch (Throwable t) {
+            return fallback;
+        }
+    }
+
+    private String getOsLabel() {
+        String oos = readSystemProp("ro.build.version.oplusrom.display", "");
+        String prefix = oos.isEmpty() ? "OxygenOS" : "OxygenOS " + oos;
+        return prefix + " (Android " + Build.VERSION.RELEASE + ")";
+    }
+
+    private void populateHardwareSpecsOffline() {
+        try {
+            String mfg = Build.MANUFACTURER != null ? Build.MANUFACTURER : "Android";
+            String model = Build.MODEL != null ? Build.MODEL : "Device";
+            String titleModel = mfg.length() > 0 ? mfg.substring(0, 1).toUpperCase(Locale.US) + mfg.substring(1) + " " + model : model;
+            String marketName = readSystemProp("ro.vendor.oplus.market.name", titleModel);
+            String oosDisplay = readSystemProp("ro.build.version.oplusrom.display", "");
+            String oosPrefix = oosDisplay.isEmpty() ? "" : "OxygenOS " + oosDisplay + " • ";
+            String displayId = readSystemProp("ro.build.display.id", Build.DISPLAY);
+            String socModel = Build.VERSION.SDK_INT >= 31 ? Build.SOC_MODEL : "";
+            if (socModel == null || socModel.trim().isEmpty()) {
+                socModel = readSystemProp("ro.soc.model", Build.HARDWARE);
+            }
+            String abi = Build.SUPPORTED_ABIS.length > 0 ? Build.SUPPORTED_ABIS[0] : "arm64-v8a";
+
+            ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+            double totalRamGb = 8.0;
+            double availRamGb = 4.0;
+            if (am != null) {
+                am.getMemoryInfo(mi);
+                totalRamGb = mi.totalMem / 1073741824.0;
+                availRamGb = mi.availMem / 1073741824.0;
+            }
+
+            StatFs statFs = new StatFs(Environment.getDataDirectory().getPath());
+            long totalStorageGb = Math.round(statFs.getTotalBytes() / 1073741824.0);
+            long freeStorageGb = Math.round(statFs.getAvailableBytes() / 1073741824.0);
+            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+            int minPx = Math.min(dm.widthPixels, dm.heightPixels);
+            float refreshHz = getWindowManager().getDefaultDisplay().getRefreshRate();
+
+            if (mTvDeviceHeaderBadge != null) {
+                mTvDeviceHeaderBadge.setText(marketName + " (" + model + ") • " + oosPrefix + "Android " + Build.VERSION.RELEASE);
+            }
+            if (mTvSpecBadge != null) {
+                mTvSpecBadge.setText(Build.DEVICE != null ? Build.DEVICE.toUpperCase(Locale.US) : "ANDROID");
+            }
+            if (mTvSpecSoc != null) mTvSpecSoc.setText("⚡ Processor: " + socModel + " (" + abi + ")");
+            if (mTvSpecRam != null) {
+                mTvSpecRam.setText(String.format(Locale.US, "🧠 RAM: %.1f GB Total System Memory", totalRamGb));
+            }
+            if (mTvSpecStorage != null) {
+                mTvSpecStorage.setText(String.format(Locale.US, "💾 Storage: %d GB Usable Internal Data", totalStorageGb));
+            }
+            if (mTvSpecDisplay != null) {
+                mTvSpecDisplay.setText(String.format(Locale.US, "📱 Display: %dx%d @ %d DPI • %.0fHz", dm.widthPixels, dm.heightPixels, dm.densityDpi, refreshHz));
+            }
+            if (dm.densityDpi > 0 && minPx > 0) {
+                int estDp = Math.round(minPx * 160.0f / dm.densityDpi);
+                updateSmallestWidthUi(estDp, dm.densityDpi);
+            }
+            Intent batIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            int batPct = 0;
+            double batTemp = 0;
+            if (batIntent != null) {
+                int level = batIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                int scale = batIntent.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
+                int tempTenths = batIntent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0);
+                batPct = (level >= 0 && scale > 0) ? (level * 100) / scale : 0;
+                batTemp = tempTenths / 10.0;
+            }
+            if (mTvSpecBattery != null) {
+                mTvSpecBattery.setText("🔋 Battery: " + (batPct > 0 ? batPct + "% Charged" : "Standard Battery Subsystem"));
+            }
+            if (mTvSpecOs != null) {
+                mTvSpecOs.setText("⚙️ OS: " + oosPrefix + "Android " + Build.VERSION.RELEASE + " (SDK " + Build.VERSION.SDK_INT + ") • " + displayId);
+            }
+            if (mTvConsole != null) {
+                mTvConsole.setText("Android Revamp Hub initialized.\nDevice: " + marketName + " • Android " + Build.VERSION.RELEASE + " • Ready.");
+            }
+            if (mTvMetricRam != null && am != null) {
+                double usedRamGb = Math.max(0, totalRamGb - availRamGb);
+                int pct = totalRamGb > 0 ? (int) ((usedRamGb * 100.0) / totalRamGb) : 0;
+                mTvMetricRam.setText(String.format(Locale.US, "%.1f / %.1f GB (%d%%)", usedRamGb, totalRamGb, pct));
+            }
+            if (mTvMetricStorage != null) {
+                mTvMetricStorage.setText(String.format(Locale.US, "%dG Free", freeStorageGb));
+            }
+            if (batIntent != null && mTvMetricBattery != null) {
+                mTvMetricBattery.setText(String.format(Locale.US, "%d%% • %.1f°C", batPct, batTemp));
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void refreshHardwareSpecs(IUserService service) {
+        new Thread(() -> {
+            try {
+                String jsonStr = service.getHardwareSpecsJson();
+                JSONObject obj = new JSONObject(jsonStr);
+                String badge = obj.optString("badge", "");
+                String soc = obj.optString("soc", "");
+                String ram = obj.optString("ram", "");
+                String storage = obj.optString("storage", "");
+                String display = obj.optString("display", "");
+                String battery = obj.optString("battery", "");
+                String os = obj.optString("os", "");
+                String hwChip = obj.optString("hw_chip_badge", "");
+                mHandler.post(() -> {
+                    if (!badge.isEmpty() && mTvDeviceHeaderBadge != null) mTvDeviceHeaderBadge.setText(badge);
+                    if (!hwChip.isEmpty() && mTvSpecBadge != null) mTvSpecBadge.setText(hwChip);
+                    if (!soc.isEmpty() && mTvSpecSoc != null) mTvSpecSoc.setText("⚡ Processor: " + soc);
+                    if (!ram.isEmpty() && mTvSpecRam != null) mTvSpecRam.setText("🧠 RAM: " + ram);
+                    if (!storage.isEmpty() && mTvSpecStorage != null) mTvSpecStorage.setText("💾 Storage: " + storage);
+                    if (!display.isEmpty() && mTvSpecDisplay != null) mTvSpecDisplay.setText("📱 Display: " + display);
+                    if (!battery.isEmpty() && mTvSpecBattery != null) mTvSpecBattery.setText("🔋 Battery: " + battery);
+                    if (!os.isEmpty() && mTvSpecOs != null) mTvSpecOs.setText("⚙️ OS: " + os);
+                });
+            } catch (Exception ignored) {}
         }).start();
     }
 

@@ -1,9 +1,11 @@
 package com.oneplus.optimizer;
 
+import android.os.Build;
 import android.os.RemoteException;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.Locale;
+import org.json.JSONObject;
 
 public class MyUserService extends IUserService.Stub {
 
@@ -86,89 +88,144 @@ public class MyUserService extends IUserService.Stub {
 
     @Override
     public String runMasterOptimization() throws RemoteException {
+        return runSelectedOptimizations(
+            "bloatware_shield,private_dns,aa_cable_only,charge_limit_80,bypass_charging," +
+            "fast_doze,cellular_sleep,aod_smart_mode,weather_tamer,critical_whitelist," +
+            "restrict_drainers,cache_trim,storage_trim,dev_debugging_on,banking_stealth_off," +
+            "shizuku_cloak_off,fhd_resolution,refresh_ltpo_auto,anim_05x,gestures_shield"
+        );
+    }
+
+    @Override
+    public String runSelectedOptimizations(String taskKeysCsv) throws RemoteException {
+        if (taskKeysCsv == null || taskKeysCsv.trim().isEmpty()) {
+            return "⚠ No tasks selected to run.";
+        }
         StringBuilder log = new StringBuilder();
-        log.append("=== Executing Master System Optimization ===\n");
-
-        // 1. Trim cache and flush RAM
-        runTrimCache();
-        runFlushRam();
-        runCmd("sm fstrim 2>/dev/null || true");
-        log.append("1. ✔ Cache trimmed & RAM flushed (Flash fstrim complete)\n");
-
-        // 2. Wired and Wireless Debugging - ON
-        setDevOptionsEnabled(true);
-        setUsbDebuggingEnabled(true);
-        setWirelessDebuggingEnabled(true);
-        log.append("2. ✔ Wired & Wireless Debugging ENABLED (Developer Options ON)\n");
-
-        // 3. Disable Banking and UPI Stealth Mode (restores standard environment)
-        setBankingModeEnabled(false);
-        cloakAllRiskApps(false);
-        log.append("3. ✔ Banking & UPI Stealth Mode DISABLED (Standard environment active, tools uncloaked)\n");
-
-        // 4. Disable Shizuku-Next Stealth Mode (ensures Shizuku server is running & uncloaked)
-        setShizukuCloaked(false);
-        log.append("4. ✔ Shizuku-Next Stealth Mode DISABLED (Server running & uncloaked)\n");
-
-        // 5. AdGuard Private DNS Shield - ON
-        setPrivateDnsEnabled(true);
-        log.append("5. ✔ AdGuard Private DNS Shield ACTIVE (dns.adguard-dns.com)\n");
-
-        // 6. Android Auto Cable Only - ON
-        setAACableOnly(true);
-        log.append("6. ✔ Android Auto CABLE-ONLY Mode ACTIVE (Wireless blocked)\n");
-
-        // 7. OEM Bloatware and Telemetry - ON (Freeze Bloatware ON)
-        setBloatwareShieldEnabled(true);
-        log.append("7. ✔ OEM Bloatware & Telemetry Shield ACTIVE (Meta, HeyTap, SAUHelper frozen)\n");
-
-        // 8. 80% Charge Limit - ON (and Smart Charging OFF)
-        set80PercentLimitEnabled(true);
-        setSmartChargingEnabled(false);
-        log.append("8. ✔ 80% Custom Charge Limit LOCKED ON (Smart Charging OFF)\n");
-
-        // 9. Hardware Bypass Charging once 80% reaches - ON
-        setBypassChargingEnabled(true);
-        log.append("9. ✔ Hardware Bypass Charging ACTIVE (Motherboard power bypass at ≥80%)\n");
-
-        // 10. Fast Doze Instant - ON
-        setFastDozeEnabled(true);
-        log.append("10. ✔ Fast Doze Instant Standby ACTIVE (Deep sleep 60s screen-off)\n");
-
-        // 11. Cellular Modem Sleep on Wi-Fi - ON
-        setCellularSleepOnWifiEnabled(true);
-        log.append("11. ✔ Cellular Modem Sleep on Wi-Fi ACTIVE (Baseband RF sleeps)\n");
-
-        // 12. Screen Resolution to FHD+ - ON
-        setFhdResolutionEnabled(true);
-        log.append("12. ✔ Screen Resolution set to Standard FHD+ (Power saving dynamic scaling)\n");
-
-        // 13. Extreme High Refresh Lock - OFF (Dynamic LTPO/Adaptive standard)
-        setHighRefreshEnabled(false);
-        log.append("13. ✔ Extreme High Refresh Lock DISABLED (Adaptive refresh active)\n");
-
-        // 14. Smart AOD and Deep Standby - ON
-        setAodSmartModeEnabled(true);
-        log.append("14. ✔ Smart AOD & Deep Standby ACTIVE (Pickup/Touch OLED black screen)\n");
-
-        // 15. OnePlus Weather CPU Tamer - ON
-        setWeatherTamerEnabled(true);
-        log.append("15. ✔ OnePlus Weather CPU Tamer ACTIVE (GPS/wakeups restricted)\n");
-
-        // 16. 0.5x Snappy Animation - ON
-        setAnimationSpeed(0.5f);
-        log.append("16. ✔ System Animation Scale set to 0.5x (Snappy responsiveness)\n");
-
-        // 17. Full Gesture Shield - ON
-        restoreGestures();
-        log.append("17. ✔ Full-Screen Gestures Shield ACTIVE (AOSP Mode 2, back insets calibrated)\n");
-
-        // Lockdown background drainers & verify critical apps whitelist
-        enforceCriticalAppsShield();
-        restrictBackgroundDrainers();
-
-        log.append("=== Master Optimization Complete! All 17 items applied. ===\n");
+        log.append("=== Executing Selected System Optimizations ===\n");
+        String[] keys = taskKeysCsv.split(",");
+        int step = 0;
+        for (String raw : keys) {
+            String key = raw.trim();
+            if (key.isEmpty()) continue;
+            step++;
+            executeTaskByKey(key, step, log);
+        }
+        log.append("=== Completed ").append(step).append(" selected optimization task(s). ===\n");
         return log.toString();
+    }
+
+    private void executeTaskByKey(String key, int step, StringBuilder log) throws RemoteException {
+        switch (key) {
+            case TaskConfig.TASK_BLOATWARE_SHIELD:
+                setBloatwareShieldEnabled(true);
+                log.append(step).append(". ✔ OEM Bloatware & Telemetry Shield ACTIVE (Meta, HeyTap, SAUHelper, OPlus analytics frozen)\n");
+                break;
+            case TaskConfig.TASK_PRIVATE_DNS:
+                setPrivateDnsEnabled(true);
+                log.append(step).append(". ✔ AdGuard Private DNS Shield ACTIVE (dns.adguard-dns.com)\n");
+                break;
+            case TaskConfig.TASK_AA_CABLE_ONLY:
+                setAACableOnly(true);
+                log.append(step).append(". ✔ Android Auto CABLE-ONLY Mode ACTIVE\n");
+                break;
+            case TaskConfig.TASK_CHARGE_LIMIT_80:
+                set80PercentLimitEnabled(true);
+                setSmartChargingEnabled(false);
+                log.append(step).append(". ✔ 80% Custom Charge Limit LOCKED ON (Smart Charging OFF)\n");
+                break;
+            case TaskConfig.TASK_BYPASS_CHARGING:
+                setBypassChargingEnabled(true);
+                log.append(step).append(". ✔ Hardware Bypass Charging ACTIVE (at ≥80%)\n");
+                break;
+            case TaskConfig.TASK_FAST_DOZE:
+                setFastDozeEnabled(true);
+                log.append(step).append(". ✔ Fast Doze Instant Standby ACTIVE (60s screen-off)\n");
+                break;
+            case TaskConfig.TASK_CELLULAR_SLEEP:
+                setCellularSleepOnWifiEnabled(true);
+                log.append(step).append(". ✔ Cellular Modem Sleep on Wi-Fi ACTIVE\n");
+                break;
+            case TaskConfig.TASK_AOD_SMART_MODE:
+                setAodSmartModeEnabled(true);
+                log.append(step).append(". ✔ Smart AOD & Deep Standby ACTIVE (Pickup/Touch only)\n");
+                break;
+            case TaskConfig.TASK_WEATHER_TAMER:
+                setWeatherTamerEnabled(true);
+                log.append(step).append(". ✔ Weather CPU Tamer ACTIVE\n");
+                break;
+            case TaskConfig.TASK_CRITICAL_WHITELIST:
+                enforceCriticalAppsShield();
+                log.append(step).append(". ✔ Critical Apps Doze Whitelist Verified (Messaging, Calls, SMS, Alarms & Shizuku)\n");
+                break;
+            case TaskConfig.TASK_RESTRICT_DRAINERS:
+                restrictBackgroundDrainers();
+                log.append(step).append(". ✔ Aggressive Background Drainers Restricted\n");
+                break;
+            case TaskConfig.TASK_CACHE_TRIM:
+                runTrimCache();
+                runFlushRam();
+                log.append(step).append(". ✔ Dalvik/System Cache Trimmed & Background RAM Flushed\n");
+                break;
+            case TaskConfig.TASK_STORAGE_TRIM:
+                runCmd("sm fstrim 2>/dev/null || true");
+                log.append(step).append(". ✔ Flash Storage Trimmed (sm fstrim)\n");
+                break;
+            case TaskConfig.TASK_DEV_DEBUGGING_ON:
+                setDevOptionsEnabled(true);
+                setUsbDebuggingEnabled(true);
+                setWirelessDebuggingEnabled(true);
+                log.append(step).append(". ✔ Wired & Wireless Debugging ENABLED (+ Developer Options ON)\n");
+                break;
+            case TaskConfig.TASK_BANKING_STEALTH_OFF:
+                setBankingModeEnabled(false);
+                cloakAllRiskApps(false);
+                log.append(step).append(". ✔ Banking & UPI Stealth DISABLED (Modding tools uncloaked)\n");
+                break;
+            case TaskConfig.TASK_SHIZUKU_CLOAK_OFF:
+                setShizukuCloaked(false);
+                log.append(step).append(". ✔ Shizuku-Next Uncloaked & Active\n");
+                break;
+            case TaskConfig.TASK_FHD_RESOLUTION:
+                setFhdResolutionEnabled(true);
+                log.append(step).append(". ✔ Screen Resolution set to Standard FHD+\n");
+                break;
+            case TaskConfig.TASK_REFRESH_LTPO_AUTO:
+                setHighRefreshEnabled(false);
+                log.append(step).append(". ✔ Extreme High Refresh Lock DISABLED (Adaptive refresh active)\n");
+                break;
+            case TaskConfig.TASK_ANIM_05X:
+                setAnimationSpeed(0.5f);
+                log.append(step).append(". ✔ System Animation Scale set to 0.5x\n");
+                break;
+            case TaskConfig.TASK_GESTURES_SHIELD:
+                restoreGestures();
+                log.append(step).append(". ✔ Full-Screen Gestures Shield Restored (AOSP Mode 2)\n");
+                break;
+            case TaskConfig.TASK_ADB_NO_TIMEOUT:
+                setAdbAuthTimeoutDisabled(true);
+                log.append(step).append(". ✔ ADB Auth 7-Day Timeout Disabled (Keep Keys Forever)\n");
+                break;
+            case TaskConfig.TASK_VERIFY_ADB_OFF:
+                setVerifyAdbAppsEnabled(false);
+                log.append(step).append(". ✔ Verify Apps Over USB Disabled\n");
+                break;
+            case TaskConfig.TASK_COMPILE_CORE:
+                compileDailyApps();
+                log.append(step).append(". ✔ Core Essential Apps Native-Compiled (-m speed)\n");
+                break;
+            case TaskConfig.TASK_COMPILE_NEW:
+                compileNewApps();
+                log.append(step).append(". ✔ All 3rd-Party User Apps Native-Compiled (-m speed)\n");
+                break;
+            case TaskConfig.TASK_COMPILE_ALL:
+                compileAllInstalledApps();
+                log.append(step).append(". ✔ ALL Apps & System UI Deep Native-Compiled (-m speed -f)\n");
+                break;
+            default:
+                log.append(step).append(". • Unknown task skipped: ").append(key).append("\n");
+                break;
+        }
     }
 
     @Override
@@ -424,7 +481,7 @@ public class MyUserService extends IUserService.Stub {
     public String getCurrentResolutionInfo() throws RemoteException {
         String resState = runCmd("settings get secure settings_screen_resolution_state");
         if ("1".equals(resState.trim())) {
-            return "FHD+ Standard Mode (ColorOS Display Engine)";
+            return "FHD+ Standard Mode (Display Scaling)";
         } else {
             return "Native High Resolution Mode";
         }
@@ -534,7 +591,10 @@ public class MyUserService extends IUserService.Stub {
             "com.android.incallui",
             "com.android.phone",
             "com.android.providers.telephony",
-            "com.android.mms.service"
+            "com.android.mms.service",
+            "com.google.android.apps.messaging",
+            "com.android.deskclock",
+            "com.google.android.deskclock"
         };
         for (String pkg : critical) {
             runCmd("cmd deviceidle whitelist +" + pkg + " 2>/dev/null || true");
@@ -574,7 +634,7 @@ public class MyUserService extends IUserService.Stub {
 
     @Override
     public boolean isBloatwareShieldEnabled() throws RemoteException {
-        String res = runCmd("pm list packages -e --user 0 | grep -E 'com.oplus.cosa|com.oneplus.membership|com.heytap.cloud|com.oplus.stdsp'");
+        String res = runCmd("pm list packages -e --user 0 | grep -E 'com.heytap.cloud|com.heytap.mcs|com.oplus.sauhelper|com.oplus.statistics.rom|com.oplus.logkit|com.oplus.onetrace|com.oplus.cosa|com.oneplus.membership'");
         return res.trim().isEmpty();
     }
 
@@ -768,7 +828,6 @@ public class MyUserService extends IUserService.Stub {
         if (low.contains("smarttube")) return "SmartTube";
         if (low.contains("ytdl")) return "YTDLnis";
         if (low.contains("pcap")) return "PCAPdroid";
-        if (low.contains("automaker")) return "AndroidAutoMaker";
         if (low.contains("revanced")) return "ReVanced Component";
         if (low.contains("adguard")) return "AdGuard Blocker/VPN";
         if (low.contains("wireguard")) return "WireGuard VPN";
@@ -798,13 +857,11 @@ public class MyUserService extends IUserService.Stub {
                 if (!detected.containsKey(pkg)) {
                     String low = pkg.toLowerCase();
                     if (low.contains("fermata") || low.contains("kinginstaller") || low.contains("aaenabler") ||
-                        low.contains("aamaker") || low.contains("automaker") ||
                         (low.contains("mmrl") && !low.contains("commercial")) ||
                         low.contains(".aaxp") || low.endsWith("aaxp") || low.contains("aabrowser") ||
                         low.contains(".morphe.") || low.contains("smarttube") || low.contains("ytdl") ||
                         low.contains("customapps") || low.contains("autoclicker") || low.contains("clicker") ||
-                        low.contains("pcapdroid") || low.contains("microg") || low.contains("torrdroid") ||
-                        low.contains("apkextractor") || low.contains("obtainium") ||
+                        low.contains("pcapdroid") || low.contains("obtainium") ||
                         low.contains("anydesk") || low.contains("rustdesk") ||
                         low.contains("revanced") || low.contains("adguard") ||
                         low.contains("wireguard") || low.contains("lsposed") || low.contains("xposed") ||
@@ -1163,44 +1220,63 @@ public class MyUserService extends IUserService.Stub {
         return runCmd("pkg=$(pm path " + shizPkg + " 2>/dev/null | head -n1 | cut -d: -f2); if [ -n \"$pkg\" ]; then lib=\"$(dirname \"$pkg\")/lib/arm64/libshizuku.so\"; if [ -f \"$lib\" ]; then \"$lib\" 2>&1; else sh /sdcard/Android/data/" + shizPkg + "/files/start.sh 2>&1; fi; else echo \"Shizuku app not found (" + shizPkg + ")\"; fi");
     }
 
-    private String escJson(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").trim();
-    }
-
     @Override
     public String getHardwareSpecsJson() throws RemoteException {
-        String brand = runCmd("getprop ro.product.manufacturer").trim();
-        String model = runCmd("getprop ro.product.model").trim();
-        String soc = runCmd("getprop ro.soc.model").trim();
-        if (soc.isEmpty()) soc = runCmd("getprop ro.hardware").trim();
-        String abi = runCmd("getprop ro.product.cpu.abi").trim();
-        String release = runCmd("getprop ro.build.version.release").trim();
-        String buildId = runCmd("getprop ro.build.display.id").trim();
-        String memKbStr = runCmd("awk '/MemTotal/{print $2}' /proc/meminfo 2>/dev/null || true").trim();
-        String ramStr = "RAM detected via Android";
         try {
-            double gb = Long.parseLong(memKbStr) / 1048576.0;
-            ramStr = String.format(Locale.US, "%.1f GB Available Physical RAM", gb);
-        } catch (Exception ignored) {}
-        String df = runCmd("df -h /data 2>/dev/null | tail -n1 | awk '{print $2}'").trim();
-        String storageStr = df.isEmpty() ? "Internal Flash Storage" : (df + " Total Usable Data Partition");
-        String wmSize = runCmd("wm size 2>/dev/null | grep -oE '[0-9]+x[0-9]+' | tail -n1").trim();
-        String wmDens = runCmd("wm density 2>/dev/null | grep -oE '[0-9]+' | tail -n1").trim();
-        String displayStr = (wmSize.isEmpty() ? "Adaptive Display" : wmSize)
-                + (wmDens.isEmpty() ? "" : " @ " + wmDens + " DPI");
-        String batLevel = runCmd("dumpsys battery 2>/dev/null | grep -i 'level:' | head -n1 | cut -d: -f2").trim();
-        String batStr = batLevel.isEmpty() ? "Li-Ion / Li-Po Subsystem" : ("Current Charge: " + batLevel + "%");
+            String mfg = runCmd("getprop ro.product.manufacturer").trim();
+            if (mfg.isEmpty()) mfg = Build.MANUFACTURER;
+            String marketName = runCmd("getprop ro.vendor.oplus.market.name").trim();
+            String model = runCmd("getprop ro.product.model").trim();
+            if (model.isEmpty()) model = Build.MODEL;
+            String deviceTitle = !marketName.isEmpty() ? marketName : ((mfg + " " + model).trim());
 
-        return "{"
-            + "\"chip\":\"" + escJson((brand + " " + model).trim()) + "\","
-            + "\"soc\":\"" + escJson(soc + (abi.isEmpty() ? "" : " (" + abi + ")")) + "\","
-            + "\"ram\":\"" + escJson(ramStr) + "\","
-            + "\"storage\":\"" + escJson(storageStr) + "\","
-            + "\"display\":\"" + escJson(displayStr) + "\","
-            + "\"os\":\"" + escJson("Android " + release + (buildId.isEmpty() ? "" : " • " + buildId)) + "\","
-            + "\"battery\":\"" + escJson(batStr) + "\""
-            + "}";
+            String oosDisplay = runCmd("getprop ro.build.version.oplusrom.display").trim();
+            String displayId = runCmd("getprop ro.build.display.id").trim();
+            if (displayId.isEmpty()) displayId = Build.DISPLAY;
+
+            String androidRelease = Build.VERSION.RELEASE;
+            int sdkInt = Build.VERSION.SDK_INT;
+
+            String soc = runCmd("getprop ro.soc.model").trim();
+            if (soc.isEmpty() && Build.VERSION.SDK_INT >= 31) soc = Build.SOC_MODEL;
+            if (soc.isEmpty()) soc = Build.HARDWARE;
+            String abi = runCmd("getprop ro.product.cpu.abi").trim();
+            String socText = soc + (abi.isEmpty() ? "" : " (" + abi + ")");
+
+            String memTotalLine = runCmd("grep -m1 'MemTotal:' /proc/meminfo");
+            long totalKb = parseKb(memTotalLine);
+            String ramText = totalKb > 0
+                ? String.format(Locale.US, "%.1f GB Available Physical RAM", totalKb / 1048576.0)
+                : "Physical RAM detected via Android";
+
+            String df = runCmd("df -h /data 2>/dev/null | tail -n1 | awk '{print $2}'").trim();
+            String storageText = df.isEmpty() ? "Internal Flash Storage" : (df + " Total Usable Data Partition");
+
+            String wmSize = runCmd("wm size 2>/dev/null | grep -oE '[0-9]+x[0-9]+' | tail -n1").trim();
+            String wmDens = runCmd("wm density 2>/dev/null | grep -oE '[0-9]+' | tail -n1").trim();
+            String displayText = (wmSize.isEmpty() ? "Adaptive Display" : wmSize)
+                + (wmDens.isEmpty() ? "" : " @ " + wmDens + " DPI");
+
+            String batLevel = runCmd("dumpsys battery 2>/dev/null | grep -i 'level:' | head -n1 | cut -d: -f2").trim();
+            String batText = batLevel.isEmpty() ? "Li-Ion / Li-Po Battery Subsystem" : ("Current Charge: " + batLevel + "%");
+
+            String osPrefix = !oosDisplay.isEmpty() ? ("OxygenOS " + oosDisplay + " • ") : "";
+            String osText = osPrefix + "Android " + androidRelease + " (SDK " + sdkInt + ")" + (displayId.isEmpty() ? "" : " • " + displayId);
+            String badgeText = deviceTitle + " (" + model + ") • " + (!oosDisplay.isEmpty() ? "OxygenOS " + oosDisplay + " • " : "") + "Android " + androidRelease;
+
+            JSONObject json = new JSONObject();
+            json.put("badge", badgeText);
+            json.put("soc", socText);
+            json.put("ram", ramText);
+            json.put("storage", storageText);
+            json.put("display", displayText);
+            json.put("battery", batText);
+            json.put("os", osText);
+            json.put("hw_chip_badge", Build.DEVICE != null ? Build.DEVICE.toUpperCase(Locale.US) : "ANDROID");
+            return json.toString();
+        } catch (Exception e) {
+            return "{}";
+        }
     }
 
     @Override
@@ -1404,5 +1480,67 @@ public class MyUserService extends IUserService.Stub {
             setAppCloaked(pkg, cloak);
         }
         return true;
+    }
+
+    private int getPhysicalShortSidePx() {
+        String out = runCmd("wm size").trim();
+        int fallback = 1080;
+        for (String line : out.split("\n")) {
+            if (line.contains(":")) {
+                String resPart = line.substring(line.indexOf(':') + 1).trim();
+                String[] dims = resPart.split("x");
+                if (dims.length == 2) {
+                    try {
+                        int w = Integer.parseInt(dims[0].trim());
+                        int h = Integer.parseInt(dims[1].trim());
+                        int minDim = Math.min(w, h);
+                        if (minDim > 0) {
+                            if (line.startsWith("Override")) return minDim;
+                            fallback = minDim;
+                        }
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
+        }
+        return fallback;
+    }
+
+    @Override
+    public int getSmallestWidthDpi() throws RemoteException {
+        String out = runCmd("wm density").trim();
+        int physical = 420;
+        for (String line : out.split("\n")) {
+            if (line.contains(":")) {
+                try {
+                    int val = Integer.parseInt(line.substring(line.indexOf(':') + 1).trim());
+                    if (line.startsWith("Override")) return val;
+                    physical = val;
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        return physical;
+    }
+
+    @Override
+    public int getSmallestWidthDp() throws RemoteException {
+        int minPx = getPhysicalShortSidePx();
+        int dpi = getSmallestWidthDpi();
+        if (dpi <= 0) dpi = 420;
+        return Math.round(minPx * 160.0f / dpi);
+    }
+
+    @Override
+    public String setSmallestWidthDp(int targetDp) throws RemoteException {
+        if (targetDp <= 0) {
+            runCmd("wm density reset");
+            int resetDpi = getSmallestWidthDpi();
+            int resetDp = getSmallestWidthDp();
+            return "✔ Smallest Width reset to Stock (" + resetDp + " dp @ " + resetDpi + " DPI)";
+        }
+        int minPx = getPhysicalShortSidePx();
+        int targetDpi = Math.max(120, (minPx * 160) / targetDp);
+        runCmd("wm density " + targetDpi);
+        String mode = targetDp >= 560 ? "Tablet View" : "Mobile View";
+        return "✔ Smallest Width set to " + targetDp + " dp (" + mode + " • " + targetDpi + " DPI)";
     }
 }

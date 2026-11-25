@@ -28,6 +28,7 @@ public class DailyAlarmReceiver extends BroadcastReceiver {
         // Schedule next day's alarm
         scheduleNextAlarm(context);
 
+        final String tasksCsv = TaskConfig.consumeNextDailyTasksCsv(context);
         PendingResult pendingResult = goAsync();
 
         new Thread(() -> {
@@ -37,9 +38,8 @@ public class DailyAlarmReceiver extends BroadcastReceiver {
                         @Override
                         public void onReady(IUserService service) {
                             try {
-                                service.runMasterOptimization();
-                                service.compileNewApps();
-                                postNotification(context, "Daily auto-care complete: system optimized & storage trimmed.");
+                                service.runSelectedOptimizations(tasksCsv);
+                                postNotification(context, "Daily auto-care complete (" + TaskConfig.parseCsvSet(tasksCsv).size() + " selected tasks ran).");
                             } catch (Exception ignored) {}
                             pendingResult.finish();
                         }
@@ -128,7 +128,7 @@ public class DailyAlarmReceiver extends BroadcastReceiver {
             b = new android.app.Notification.Builder(context);
         }
 
-        b.setContentTitle("OnePlus Revamp Hub")
+        b.setContentTitle("Android Revamp Hub")
          .setContentText(message)
          .setSmallIcon(R.drawable.ic_launcher)
          .setAutoCancel(true);

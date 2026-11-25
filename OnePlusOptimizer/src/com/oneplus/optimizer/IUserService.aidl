@@ -105,4 +105,9 @@ interface IUserService {
     String engageFullBankingStealth(boolean deepFreezeShizuku);
     String exitFullBankingStealth();
     String getStealthAuditSummary();
+
+    String runSelectedOptimizations(String taskKeysCsv);
+    int getSmallestWidthDp();
+    int getSmallestWidthDpi();
+    String setSmallestWidthDp(int targetDp);
 }
