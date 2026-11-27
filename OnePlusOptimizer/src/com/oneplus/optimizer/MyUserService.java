@@ -588,6 +588,7 @@ public class MyUserService extends IUserService.Stub {
             resolveShizukuPkg(),
             "com.oneplus.optimizer",
             "com.google.android.projection.gearhead",
+            "com.spotify.music",
             "com.android.incallui",
             "com.android.phone",
             "com.android.providers.telephony",
@@ -597,12 +598,43 @@ public class MyUserService extends IUserService.Stub {
             "com.google.android.deskclock"
         };
         for (String pkg : critical) {
-            runCmd("cmd deviceidle whitelist +" + pkg + " 2>/dev/null || true");
-            runCmd("cmd appops set " + pkg + " RUN_IN_BACKGROUND allow 2>/dev/null || true");
-            runCmd("cmd appops set " + pkg + " WAKE_LOCK allow 2>/dev/null || true");
-            runCmd("am set-standby-bucket " + pkg + " active 2>/dev/null || true");
+            allowInstalledAppInBackground(pkg);
         }
-        return "✔ Critical Apps Shield verified: Messaging, Calls, SMS, Alarms & Shizuku whitelisted.";
+        restoreAudioAndConnectivityServices();
+        return "✔ Critical Apps & Audio/AA Shield verified: Messaging, Calls, SMS, Alarms, AA & Shizuku whitelisted.";
+    }
+
+    /** Ensures an installed app stays out of Doze/background starvation. */
+    private void allowInstalledAppInBackground(String pkg) {
+        if (pkg == null || pkg.isEmpty()) return;
+        runCmd("if pm path " + pkg + " >/dev/null 2>&1; then " +
+               "pm enable " + pkg + " >/dev/null 2>&1 || true; " +
+               "cmd deviceidle whitelist +" + pkg + " >/dev/null 2>&1 || true; " +
+               "cmd appops set " + pkg + " RUN_IN_BACKGROUND allow >/dev/null 2>&1 || true; " +
+               "cmd appops set " + pkg + " RUN_ANY_IN_BACKGROUND allow >/dev/null 2>&1 || true; " +
+               "cmd appops set " + pkg + " WAKE_LOCK allow >/dev/null 2>&1 || true; " +
+               "am set-standby-bucket " + pkg + " active >/dev/null 2>&1 || true; " +
+               "fi");
+    }
+
+    /** Restores OPlus audio/cast/peripheral services so AA & BT handoff never distort sound. */
+    private void restoreAudioAndConnectivityServices() {
+        String[] systemAudioConnectivity = {
+            "com.oplus.linker",
+            "com.oplus.cast",
+            "com.oplus.matrix",
+            "com.oplus.cosa",
+            "com.oplus.audio.effectcenter"
+        };
+        for (String pkg : systemAudioConnectivity) {
+            runCmd("if pm path " + pkg + " >/dev/null 2>&1; then " +
+                   "pm enable " + pkg + " >/dev/null 2>&1 || true; " +
+                   "cmd appops set " + pkg + " RUN_IN_BACKGROUND allow >/dev/null 2>&1 || true; " +
+                   "cmd appops set " + pkg + " RUN_ANY_IN_BACKGROUND allow >/dev/null 2>&1 || true; " +
+                   "cmd appops set " + pkg + " WAKE_LOCK allow >/dev/null 2>&1 || true; " +
+                   "am set-standby-bucket " + pkg + " active >/dev/null 2>&1 || true; " +
+                   "fi");
+        }
     }
 
     private static final String[] BLOATWARE_PACKAGES = {
@@ -617,7 +649,6 @@ public class MyUserService extends IUserService.Stub {
         "com.heytap.cloud",
         "com.heytap.mcs",
         "com.oplus.games",
-        "com.oplus.cosa",
         "com.oneplus.mall",
         "net.oneplus.forums",
         "com.heytap.browser",
@@ -634,7 +665,7 @@ public class MyUserService extends IUserService.Stub {
 
     @Override
     public boolean isBloatwareShieldEnabled() throws RemoteException {
-        String res = runCmd("pm list packages -e --user 0 | grep -E 'com.heytap.cloud|com.heytap.mcs|com.oplus.sauhelper|com.oplus.statistics.rom|com.oplus.logkit|com.oplus.onetrace|com.oplus.cosa|com.oneplus.membership'");
+        String res = runCmd("pm list packages -e --user 0 | grep -E 'com.heytap.cloud|com.heytap.mcs|com.oplus.sauhelper|com.oplus.statistics.rom|com.oplus.logkit|com.oplus.onetrace|com.oneplus.membership'");
         return res.trim().isEmpty();
     }
 
@@ -1365,14 +1396,12 @@ public class MyUserService extends IUserService.Stub {
         "com.oneplus.brickmode",
         "com.oneplus.backuprestore",
         "com.oplus.upgradeguide",
-        "com.coloros.activation",
-        "com.oplus.cast",
-        "com.oplus.linker",
-        "com.oplus.matrix"
+        "com.coloros.activation"
     };
 
     @Override
     public String restrictBackgroundDrainers() throws RemoteException {
+        restoreAudioAndConnectivityServices();
         StringBuilder sb = new StringBuilder();
         sb.append("=== Restricting Aggressive Background Battery Drainers ===\n");
         int count = 0;
@@ -1385,7 +1414,7 @@ public class MyUserService extends IUserService.Stub {
             runCmd("am force-stop " + pkg + " 2>/dev/null || true");
             count++;
         }
-        sb.append("✔ Locked down ").append(count).append(" installed background bloat/social drainers into Doze/Restricted standby.\n");
+        sb.append("✔ Locked down ").append(count).append(" installed background bloat/social drainers into Doze/Restricted standby (Audio/AA & OPlus Linker preserved).\n");
         return sb.toString();
     }
 
