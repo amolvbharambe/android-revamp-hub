@@ -415,7 +415,9 @@ public class MyUserService extends IUserService.Stub {
         }
         runCmd("cmd deviceidle whitelist +com.google.android.projection.gearhead 2>/dev/null || true");
         runCmd("cmd appops set com.google.android.projection.gearhead RUN_IN_BACKGROUND allow 2>/dev/null || true");
+        runCmd("cmd appops set com.google.android.projection.gearhead RUN_ANY_IN_BACKGROUND allow 2>/dev/null || true");
         runCmd("cmd appops set com.google.android.projection.gearhead WAKE_LOCK allow 2>/dev/null || true");
+        runCmd("cmd appops set com.google.android.projection.gearhead BLUETOOTH_CONNECT allow 2>/dev/null || true");
         runCmd("am set-standby-bucket com.google.android.projection.gearhead active 2>/dev/null || true");
         return isAACableOnly();
     }
@@ -588,7 +590,11 @@ public class MyUserService extends IUserService.Stub {
             resolveShizukuPkg(),
             "com.oneplus.optimizer",
             "com.google.android.projection.gearhead",
+            "com.google.android.apps.maps",
             "com.spotify.music",
+            "com.google.android.apps.youtube.music",
+            "org.videolan.vlc",
+            "com.pittvandewitt.wavelet",
             "com.android.incallui",
             "com.android.phone",
             "com.android.providers.telephony",
@@ -601,7 +607,7 @@ public class MyUserService extends IUserService.Stub {
             allowInstalledAppInBackground(pkg);
         }
         restoreAudioAndConnectivityServices();
-        return "✔ Critical Apps & Audio/AA Shield verified: Messaging, Calls, SMS, Alarms, AA & Shizuku whitelisted.";
+        return "✔ Critical Apps & Audio/AA Shield verified: Messaging, Calls, SMS, Alarms, AA, Music, EQ & Connectivity whitelisted.";
     }
 
     /** Ensures an installed app stays out of Doze/background starvation. */
@@ -617,24 +623,26 @@ public class MyUserService extends IUserService.Stub {
                "fi");
     }
 
-    /** Restores OPlus audio/cast/peripheral services so AA & BT handoff never distort sound. */
+    /** Restores OPlus audio/cast/BT accessory/TTS services so AA & BT handoff never distort sound. */
     private void restoreAudioAndConnectivityServices() {
         String[] systemAudioConnectivity = {
             "com.oplus.linker",
             "com.oplus.cast",
             "com.oplus.matrix",
             "com.oplus.cosa",
-            "com.oplus.audio.effectcenter"
+            "com.oplus.audio.effectcenter",
+            "com.heytap.accessory",
+            "com.android.bluetooth",
+            "com.android.bluetooth.services",
+            "com.google.android.tts",
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.projection.gearhead"
         };
         for (String pkg : systemAudioConnectivity) {
-            runCmd("if pm path " + pkg + " >/dev/null 2>&1; then " +
-                   "pm enable " + pkg + " >/dev/null 2>&1 || true; " +
-                   "cmd appops set " + pkg + " RUN_IN_BACKGROUND allow >/dev/null 2>&1 || true; " +
-                   "cmd appops set " + pkg + " RUN_ANY_IN_BACKGROUND allow >/dev/null 2>&1 || true; " +
-                   "cmd appops set " + pkg + " WAKE_LOCK allow >/dev/null 2>&1 || true; " +
-                   "am set-standby-bucket " + pkg + " active >/dev/null 2>&1 || true; " +
-                   "fi");
+            allowInstalledAppInBackground(pkg);
         }
+        runCmd("cmd appops set com.google.android.projection.gearhead BLUETOOTH_CONNECT allow >/dev/null 2>&1 || true");
+        runCmd("cmd appops set com.heytap.accessory BLUETOOTH_CONNECT allow >/dev/null 2>&1 || true");
     }
 
     private static final String[] BLOATWARE_PACKAGES = {
@@ -1133,7 +1141,10 @@ public class MyUserService extends IUserService.Stub {
             runCmd("cmd appops set " + shizPkg + " WAKE_LOCK allow 2>/dev/null || true");
             runCmd("cmd appops set " + shizPkg + " START_FOREGROUND allow 2>/dev/null || true");
             runCmd("rm -f /data/local/tmp/revamp_shizuku_cloaked.txt 2>/dev/null || true");
-            startShizukuServerDirect();
+            String existingPid = runCmd("pidof shizuku_server 2>/dev/null || true").trim();
+            if (existingPid.isEmpty()) {
+                startShizukuServerDirect();
+            }
             return isShizukuCloaked();
         }
     }
@@ -1390,7 +1401,6 @@ public class MyUserService extends IUserService.Stub {
         "com.heytap.browser",
         "com.heytap.cloud",
         "com.heytap.market",
-        "com.heytap.accessory",
         "com.oneplus.oshare",
         "com.oneplus.account",
         "com.oneplus.brickmode",
